@@ -1,0 +1,12 @@
+# Etiquette reminders ! 
+- keep file paths short 
+- don't use funky characters or spaces
+- always pull before you push 
+- if working in a group, write informative commits before pushing 
+- don't ever push the Rproj file!!!
+- structure code in a comprehensive and reproducible way 
+  - add ---- at the end of each part
+  - comment the steps for each chunk of code 
+  - skip lines to help with legibility 
+- add informative READMEs in each folder 
+- add links for data accessibility (who it belongs to)

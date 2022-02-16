@@ -1,0 +1,242 @@
+---
+title: "Red fox population declines through time"
+author: "Louise Litrico (s1814797@ed.ac.uk)"
+date: "10/11/2021"
+output:
+  pdf_document:
+    toc: yes
+  html_document:
+    toc: yes
+    toc_float: yes
+abstract: "Data Science for Ecological and Environmental Sciences Challenge 3"
+---
+```{r global_options, include = FALSE}
+knitr::opts_chunk$set(message=FALSE,
+tidy.opts=list(width.cutoff=60))
+```
+
+***
+
+## Introduction
+
+The data used in this study was collected by the *Living Planet Index* (LPI 2016. [Living Planet Index database](https://livingplanetindex.org/home/index). 2016., available to use for scientific analysis or research and conservation purposes. This report uses observation data of red fox populations around the world to study their changes through time using a Bayesian generalized mixed-effects modelling approach. 
+
+***
+
+### Research questions, hypotheses and predictions
+
+My question of interest is whether or not red fox populations have changed through time. 
+My main directional hypothesis is that red fox populations have increased through time. I think this is the case because cities have developed and foxes have been able to learn how to benefit from living near humans, increasing their population thanks to this use of opportunities. 
+For my Bayesian model, this implies that red fox abundance is the main response variable (or dependent variable) and time is the main explanatory variable (or independent variable). 
+Therefore, I expect the red fox abundance to increase as time increases. 
+
+***
+
+## Data manipulation and information
+
+An initial data manipulation was done to select red fox (*vulpes vulpes*) populations in the LPI dataset which originally includes more species.
+
+```{r, messages = F, warning = F, error = F, echo = F}
+library(tidyverse)
+```
+
+```{r}
+fox_data <- read.csv("fox_data.csv")
+```
+
+***
+
+### General information 
+
+* The data range from 1970 up to 2006
+* The data come from 10 studies, carried out in 24 location, found in 5 different countries, located in 3 regions of the world. It is therefore very nested, a fact that should be accounted for in the model.
+* Each study uses a different sampling method to get an estimate of the population of red foxes in their area.
+* Although there are 10 studies and 10 sampling methods, the dataset includes 11 units 
+
+Because of the two previous points, a sub-sample of the data with similar sampling methods and/or units should be used for the model. I chose to look specifically at studies that measured the using number of fox tracks seen over 100km during 24h observations as a proxy for abundance.
+
+```{r selection of studies with similar unit, echo = F}
+track <- fox_data %>%  
+  filter(Units %in% c("Track index - the number of crossings per 24h per 10km.",
+                      "Red fox track trails per 1km per day",
+                      "Track density (10km<8c><bf><8c>_ 24h <8c><bf><8c>_ )",
+                      "Tracks per 100m transect per 24 recordings"))
+```
+
+***
+
+### Data distribution 
+
+```{r distribution histogram, echo = F}
+hist(track$pop, breaks = 40, xlab = "Red fox abundance")
+```
+Figure 1: Histogram of red fox abundances in the subset of the LPI dataset.
+As shown in the histogram above, the data are not normally distributed but rather exponentially distributed with a higher probability of low values than high values. Therefore, this is the family I used for the model. 
+
+***
+
+### Data structure 
+
+```{r data nesting, echo = F}
+table <- track %>% 
+  group_by(Country.list) %>% 
+  summarise(location.n = length(unique(Location.of.population))) %>% 
+  ungroup()
+```
+
+| Country | Locations |
+|:--------|----------:|
+| Belarus | 2         |
+| Finland | 4         |
+
+As shown by the table above, the data for each population is nested within two countries: Belarus and Finland. The statistical analysis needs to account for this structure which is why I use a hierarchical model with Location nested into Country (as a random effect).  
+
+*** 
+
+## Hierarchical linear model 
+
+### Model setup 
+
+```{r, messages = F, warning = F, error = F, echo = F}
+library(brms) 
+```
+
+```{r model, eval = F}
+track_mbrms <- brms::brm(pop ~ I(year - 1970) + (I(year - 1970)|Country.list/Location.of.population), 
+                          data = track, family = exponential(), chains = 3, 
+                          iter = 1000, warmup = 500)
+```
+
+```{r, echo = F}
+load("model_output/track_mbrms.Rdata")
+```
+
+I used a Bayesian model with the default uninformative prior already present in the `brm()` function (see below).
+
+```{r, messages = F, warning = F, error = F, echo = F}
+library(pander)
+```
+
+```{r, echo = F}
+default_priors <- data.frame(prior_summary(track_mbrms, all = FALSE)) %>% 
+  select(-coef, -group, -resp, -dpar, -nlpar, -bound)
+
+pander(default_priors)
+```
+
+#### Table 1: Default priors used in the brm package
+
+In addition, time (in years) had to be modified to start at 1970 rather than at 0, hence the `(I(year - 1970)` term in the model above.
+
+*** 
+
+### Tables of model outputs 
+
+```{r, echo = F, warning = F}
+p <- summary(track_mbrms)
+df <- data.frame(p$fixed) %>% select(-Bulk_ESS, -Tail_ESS)
+
+pander(df)
+```
+
+#### Table 2: Summary output from out model
+
+This summary output shows us that the model converged well (Rhat values close to 1). In addition, we learn that our fox population abundances are actually decreasing (contrary to our hypothesis) by 0.05 individuals every year (CI: -0.189 - 1.004).
+
+***
+
+```{r, echo = F, results = T}
+slopes_track_countries <- as.data.frame(coef(track_mbrms)$Country.list)
+slopes_countries_transpose <- t(slopes_track_countries)
+pander(slopes_countries_transpose)
+```
+
+#### Table 3: Individual predicted slopes for each Country
+
+***
+
+### Model convergence and fit checks
+
+This model has a high number of divergent transitions. This could be explained by a bad convergence of the model, therefore, a check is necessary. 
+
+```{r model convergence, echo = F}
+plot(track_mbrms) 
+```
+
+Although the high number of divergent transitions after warmup can create doubt concerning the quality of the predictions, the model converged well (fuzzy caterpillar is present).
+
+***
+
+```{r, model fit, echo = F, warning = F}
+pp_check(track_mbrms, plotfun = "stat", stat = "mean")  
+```
+
+The graph above shows that the model fits the data nicely as well.
+These checks show that our model can be used to explain and predict red fox population changes. 
+
+***
+
+## Model visualization 
+
+The plots below show the raw abundance data along with the model fit with several levels of confidence. 
+
+```{r, messages = F, warning = F, error = F, echo = F}
+library(tidybayes)
+library(ggplot2)
+```
+
+```{r, echo = F}
+(model_fit <- track %>%
+    add_predicted_draws(track_mbrms) %>%
+    ggplot(aes(x = year, y = pop)) +
+    stat_lineribbon(aes(y = .prediction), .width = c(.95, .80, .50),
+                    alpha = 1/2, colour = "black") +
+    geom_point(data = track, colour = "darkseagreen4", size = 3) +
+    scale_fill_brewer(palette = "Greys") + 
+    ylab("Red fox abundance\n") +
+    xlab("\nYear") +
+    theme_bw() + 
+    theme(legend.title = element_blank(),
+          legend.position = c(0.85, 0.85)))
+```
+
+#### Figure A: Red fox abundance decreased through time.
+(green points represent raw data, black line represents the model). The shaded areas represent different levels of confidence in the model estimate (from dark to light: 95%, 80% and 50%).
+
+***
+
+```{r, messages = F, warning = F, error = F, echo = F}
+library(modelr)
+```
+
+```{r, echo = F, messages = F, warning = F, error = F}
+track %>%
+  group_by(Location.of.population) %>%
+  add_epred_draws(track_mbrms, ndraws = 100) %>%
+  ggplot(aes(x = year, y = pop, color = ordered(Location.of.population))) +
+  geom_line(aes(y = .epred, group = paste(Location.of.population, .draw)), alpha = .1) +
+  geom_point(data = track) +
+  scale_color_brewer(palette = "Dark2") +
+  theme_bw() +
+  ylab("Red fox abundance\n") +
+  xlab("\nYear") +
+  theme(legend.position = "bottom") +
+  scale_color_discrete(name = "Location")
+  
+```
+
+#### Figure B: Ref fox abundance change through time in different locations (points represent raw data, lines represent modeled slopes and intercepts)
+
+We can see in this figure that the data from 1970 to 1980 only comes from one location in  Finland, whereas all the other studies used in our model started sampling fox populations later (from 1985). This can be a source of uncertainty in the model for the first years (1970 to 1985) since data are lacking in that period. This also reduces the confidence of the model as we are committing temporal pseudoreplication if the data only comes from one location during that time frame. 
+
+***
+
+## Conclusions 
+
+This study assessed red fox abundance changes over the years with a Bayesian. Contrary to our initial hypothesis, we found that the red fox population abundance decreased through time by 0.05 individuals every year (CI: -0.189 - 1.004). As explained previously the model fit as good overall even though there was a high number of divergent transitions after warmup and only one site's data was used for years 1970 to 1985. 
+
+Our results show that more time and money should be given to understand the changes in red fox populations better. If the Belarusian and Finnish fox populations continue to drop like they are predicted to by our model, they might go extinct in those regions. 
+
+Concerning the model itself, it might also be interesting to look at the changes in origin of the foxes in the LPI dataset (if the proportion of native to invasive has changed over the years). However our dataset with similar units was to small to fit that type of model.
+
+***

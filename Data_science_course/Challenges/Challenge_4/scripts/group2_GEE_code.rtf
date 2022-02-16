@@ -1,0 +1,137 @@
+{\rtf1\ansi\ansicpg1252\cocoartf1671\cocoasubrtf600
+{\fonttbl\f0\fswiss\fcharset0 Helvetica;}
+{\colortbl;\red255\green255\blue255;}
+{\*\expandedcolortbl;;}
+\margl1440\margr1440\vieww10800\viewh8400\viewkind0
+\pard\tx566\tx1133\tx1700\tx2267\tx2834\tx3401\tx3968\tx4535\tx5102\tx5669\tx6236\tx6803\pardirnatural\partightenfactor0
+
+\f0\fs24 \cf0 // Load datasets\
+var gfc = ee.Image('UMD/hansen/global_forest_change_2017_v1_5'),\
+    parks = ee.FeatureCollection("WCMC/WDPA/current/polygons");\
+\
+// Add the focal parks in red\
+// Map.addLayer(parks, \{color: 'bb0b0b'\}, 'parks');\
+\
+var treeCover = gfc.select(['treecover2000']);\
+var lossImage = gfc.select(['loss']);\
+var gainImage = gfc.select(['gain']);\
+\
+// Create a list over which we will iterate\
+// the functions for calculating forest gains and losses\
+// We will calculate forest change over a 16 year period\
+var years = ee.List.sequence(1, 16);\
+\
+// Set the scale for our calculations to the scale of the Hansen dataset\
+// which is 30m\
+var scale = gfc.projection().nominalScale();\
+\
+// Comment out the line below when you run the code for another park!\
+var parks = parks.filter(ee.Filter.eq("NAME", "Parque do Xingu"));\
+\
+// Add the focal parks in red\
+Map.addLayer(parks, \{color: 'bb0b0b'\}, 'parks');\
+\
+// Create a variable for the original tree cover in 2000\
+var treeCover = gfc.select(['treecover2000']);\
+\
+// Convert the tree cover layer because the treeCover by default is in\
+// hundreds of hectares, but the loss and gain layers are just in hectares!\
+treeCover = treeCover.divide(100);\
+\
+// The treeCover variable is in numbers of pixels\
+// Here we are converting the pixels into actual area\
+// Dividing by 1000000 so that the final result is in km2\
+var areaCover = treeCover.multiply(ee.Image.pixelArea())\
+                .divide(1000000).select([0],["areacover"]);\
+\
+// Create a variable for the area of loss\
+var loss = gfc.select(['loss']);\
+var areaLoss = loss.gt(0).multiply(ee.Image.pixelArea()).multiply(treeCover)\
+               .divide(1000000).select([0],["arealoss"]);\
+\
+// Create a variable for the area of gain\
+var gain = gfc.select(['gain']);\
+var areaGain = gain.gt(0).multiply(ee.Image.pixelArea()).multiply(treeCover)\
+               .divide(1000000).select([0],["areagain"]);\
+\
+// Combine all the layes into one object with three bands\
+var total = gfc.addBands(areaCover)\
+            .addBands(areaLoss)\
+            .addBands(areaGain);\
+\
+// Map cover area for our region of interest\
+var parkSums = areaCover.reduceRegions(\{\
+  collection: parks,\
+  reducer: ee.Reducer.sum(),\
+  scale: scale,\
+\});\
+\
+// Add the tree cover layer in green\
+Map.addLayer(treeCover.updateMask(treeCover),\
+    \{palette: ['#009900', '#99ff99'], max: 100\}, 'Forest Cover');\
+\
+// Add the loss layer in purple\
+Map.addLayer(loss.updateMask(loss),\
+            \{palette: ['#9900ff']\}, 'Loss');\
+\
+// Add the gain layer in orange\
+Map.addLayer(gain.updateMask(gain),\
+            \{palette: ['#ffae00']\}, 'Gain');\
+\
+// Create a function that calculates yearly change\
+var addVar = function(feature) \{\
+\
+  // function to iterate over the sequence of years\
+  var addVarYear = function(year, feat) \{\
+    // cast var\
+    year = ee.Number(year).toInt();\
+    feat = ee.Feature(feat);\
+\
+    // actual year to write as property\
+    var actual_year = ee.Number(2000).add(year);\
+\
+    // filter year:\
+    // 1st: get mask\
+    var filtered = total.select("lossyear").eq(year);\
+    // 2nd: apply mask\
+    filtered = total.updateMask(filtered);\
+\
+    // reduce variables over the feature\
+    var reduc = filtered.reduceRegion(\{\
+      geometry: feature.geometry(),\
+      reducer: ee.Reducer.sum(),\
+      scale: scale,\
+      maxPixels: 1e13\
+    \});\
+\
+    // get results\
+    var loss = ee.Number(reduc.get("arealoss"));\
+    var gain = ee.Number(reduc.get("areagain"));\
+\
+    // set names\
+    var nameloss = ee.String("loss_").cat(actual_year);\
+    var namegain = ee.String("gain_").cat(actual_year);\
+\
+    // set property only if change greater than 0\
+    var cond = loss.gt(0).or(gain.gt(0));\
+    return ee.Algorithms.If(cond, \
+                            feat.set(nameloss, loss, namegain, gain),\
+                            feat);\
+  \};\
+\
+  // iterate over the sequence\
+  var newfeat = ee.Feature(years.iterate(addVarYear, feature));\
+\
+  // return feature with new properties\
+  return newfeat;\
+\};\
+\
+// Map over the FeatureCollection\
+var forestChange = parkSums.map(addVar);\
+\
+// Change the name of the park in the description based on which\
+// park you are running the code for\
+Export.table.toDrive(\{\
+  collection: forestChange,\
+  description: 'forest_change_Parque_do_Xingu'\});\
+}

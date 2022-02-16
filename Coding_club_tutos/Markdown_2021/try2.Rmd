@@ -1,0 +1,21 @@
+---
+title: "Untitled"
+output: 
+  pdf_document:
+  latex_engine: xelatex
+mainfont: Arial
+---
+```{r global_options, include = FALSE}
+knitr::opts_chunk$set(message=FALSE,
+tidy.opts=list(width.cutoff=60))
+```
+
+need to play a little with the cutoff value to get it right (so that no text gets cut out of the pdf page).
+
+# to avoir tables cut between two pages 
+
+\pagebreak
+```{r}
+# Codey codey code code
+```
+
